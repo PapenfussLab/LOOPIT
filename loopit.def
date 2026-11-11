@@ -1,0 +1,147 @@
+Bootstrap: docker
+From: rocker/r-ver:4.5.0
+
+%arguments
+    GITHUB_PAT=""
+
+%post
+    export GITHUB_PAT={{GITHUB_PAT}}
+    set -e   # fail the build immediately on any command error
+
+    # system dependencies
+    apt-get update && apt-get install -y \
+        libhdf5-dev \
+        libbz2-dev \
+        liblzma-dev \
+        libcurl4-openssl-dev \
+        libssl-dev \
+        libxml2-dev \
+        libfontconfig1-dev \
+        libharfbuzz-dev \
+        libfribidi-dev \
+        libfreetype6-dev \
+        libpng-dev \
+        libtiff5-dev \
+        libjpeg-dev \
+        libgit2-dev \
+        tabix \
+        samtools \
+        wget \
+        git \
+        && rm -rf /var/lib/apt/lists/*
+
+    # bedtools — installed via static binary since Ubuntu mirrors
+    # (archive.ubuntu.com / security.ubuntu.com) are unreachable from
+    # this cluster's build environment
+    wget --tries=5 --timeout=60 \
+        https://github.com/arq5x/bedtools2/releases/download/v2.31.0/bedtools.static \
+        -O /usr/local/bin/bedtools
+    chmod +x /usr/local/bin/bedtools
+    /usr/local/bin/bedtools --version
+
+    # CRAN packages
+    R -e "options(timeout=1200); install.packages(c( \
+        'BiocManager', \
+        'remotes', \
+        'data.table', \
+        'dplyr', \
+        'ggplot2', \
+        'igraph', \
+        'optparse', \
+        'yaml', \
+        'scales', \
+        'RColorBrewer', \
+        'R6', \
+        'reshape2', \
+        'stringr', \
+        'jsonlite', \
+        'RCurl', \
+        'forcats', \
+        'rlang', \
+        'fastmap', \
+        'this.path', \
+        'tidyverse' \
+    ), repos='https://cloud.r-project.org'); \
+    missing <- setdiff(c('BiocManager','remotes','data.table','dplyr','ggplot2', \
+        'igraph','optparse','yaml','scales','RColorBrewer','R6','reshape2', \
+        'stringr','jsonlite','RCurl','forcats','rlang','fastmap','this.path', \
+        'tidyverse'), installed.packages()[,'Package']); \
+    if (length(missing) > 0) { cat('MISSING:', missing, '\n'); quit(status=1) }"
+
+    # Bioconductor packages (excluding the large BSgenome data packages,
+    # which are downloaded manually below to avoid R's non-resumable
+    # download.file timeout on slow mirrors)
+    R -e "options(timeout=1200); BiocManager::install(c( \
+        'GenomicRanges', \
+        'IRanges', \
+        'VariantAnnotation', \
+        'StructuralVariantAnnotation', \
+        'GenomeInfoDb', \
+        'BiocGenerics', \
+        'S4Vectors', \
+        'MatrixGenerics', \
+        'rtracklayer', \
+        'ensembldb', \
+        'EnsDb.Hsapiens.v86' \
+    ), ask=FALSE, update=FALSE); \
+    missing <- setdiff(c('GenomicRanges','IRanges','VariantAnnotation', \
+        'StructuralVariantAnnotation','GenomeInfoDb','BiocGenerics', \
+        'S4Vectors','MatrixGenerics','rtracklayer','ensembldb', \
+        'EnsDb.Hsapiens.v86'), \
+        installed.packages()[,'Package']); \
+    if (length(missing) > 0) { cat('MISSING:', missing, '\n'); quit(status=1) }"
+
+    # BSgenome data packages — downloaded manually with wget (resumable,
+    # retries) rather than R's download.file, which has no retry/resume
+    # and times out on slow archive mirrors
+    wget --tries=5 --timeout=120 --continue \
+        -O /tmp/BSgenome.Hsapiens.UCSC.hg38_1.4.5.tar.gz \
+        "https://bioconductor.org/packages/release/data/annotation/src/contrib/BSgenome.Hsapiens.UCSC.hg38_1.4.5.tar.gz"
+    wget --tries=5 --timeout=120 --continue \
+        -O /tmp/BSgenome.Hsapiens.UCSC.hg19_1.4.3.tar.gz \
+        "https://bioconductor.org/packages/release/data/annotation/src/contrib/BSgenome.Hsapiens.UCSC.hg19_1.4.3.tar.gz"
+
+    R -e "install.packages('/tmp/BSgenome.Hsapiens.UCSC.hg38_1.4.5.tar.gz', repos=NULL, type='source'); \
+        install.packages('/tmp/BSgenome.Hsapiens.UCSC.hg19_1.4.3.tar.gz', repos=NULL, type='source'); \
+        missing <- setdiff(c('BSgenome.Hsapiens.UCSC.hg38','BSgenome.Hsapiens.UCSC.hg19'), \
+            installed.packages()[,'Package']); \
+        if (length(missing) > 0) { cat('MISSING:', missing, '\n'); quit(status=1) }"
+
+    rm -f /tmp/BSgenome.Hsapiens.UCSC.hg38_1.4.5.tar.gz /tmp/BSgenome.Hsapiens.UCSC.hg19_1.4.3.tar.gz
+
+    # mskilab packages — order matters: install dependencies before dependents
+    # chain: gUtils -> bamUtils -> gChain -> fishHook -> gTrack -> gGnome
+    R -e "remotes::install_github('mskilab-org/gUtils'); \
+        if (!'gUtils' %in% installed.packages()[,'Package']) quit(status=1)"
+    R -e "remotes::install_github('mskilab-org/bamUtils'); \
+        if (!'bamUtils' %in% installed.packages()[,'Package']) quit(status=1)"
+    R -e "remotes::install_github('mskilab-org/gChain'); \
+        if (!'gChain' %in% installed.packages()[,'Package']) quit(status=1)"
+    R -e "remotes::install_github('mskilab-org/fishHook'); \
+        if (!'fishHook' %in% installed.packages()[,'Package']) quit(status=1)"
+    R -e "remotes::install_github('mskilab-org/gTrack'); \
+        if (!'gTrack' %in% installed.packages()[,'Package']) quit(status=1)"
+    R -e "remotes::install_github('mskilab-org/gGnome'); \
+        if (!'gGnome' %in% installed.packages()[,'Package']) quit(status=1)"
+
+    # final full verification — catches any remaining transitive-dependency gaps
+    # across every package actually library()'d by the pipeline's R scripts
+    R -e "library(BSgenome.Hsapiens.UCSC.hg38); library(data.table); library(dplyr); \
+        library(EnsDb.Hsapiens.v86); library(ensembldb); library(fastmap); \
+        library(GenomicRanges); library(gGnome); library(gTrack); library(igraph); \
+        library(optparse); library(rtracklayer); library(stringr); \
+        library(StructuralVariantAnnotation); library(this.path); library(tidyverse); \
+        cat('ALL PACKAGES OK\n')"
+
+%environment
+    export LC_ALL=C
+    export PATH=/usr/local/bin:$PATH
+
+%labels
+    Author Jennifer Ureta
+    Version 1.1.0
+    Description LOOPIT ecDNA detection pipeline container
+
+%help
+    LOOPIT ecDNA detection pipeline
+    Usage: apptainer exec loopit_1.1.0.sif Rscript script.R

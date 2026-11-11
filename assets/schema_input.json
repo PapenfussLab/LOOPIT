@@ -1,0 +1,71 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema",
+    "$id": "https://raw.githubusercontent.com/nf-core/loopit/master/assets/schema_input.json",
+    "title": "nf-core/loopit pipeline - params.input schema",
+    "description": "Schema for the file provided with params.input",
+    "type": "array",
+    "items": {
+        "type": "object",
+        "properties": {
+            "sample": {
+                "type": "string",
+                "pattern": "^\\S+$",
+                "errorMessage": "Sample name must be provided and cannot contain spaces",
+                "meta": ["id"]
+            },
+            "mode": {
+                "type": "string",
+                "enum": ["SR", "LR"],
+                "errorMessage": "Mode must be SR (short read) or LR (long read)",
+                "meta": ["mode"]
+            },
+            "tumour_bed": {
+                "type": "string",
+                "format": "file-path",
+                "pattern": "^\\S+\\.bed\\.gz$",
+                "errorMessage": "Tumour mosdepth per-base BED file must be provided and end in .bed.gz"
+            },
+            "normal_bed": {
+                "type": "string",
+                "format": "file-path",
+                "pattern": "^\\S+\\.bed\\.gz$",
+                "errorMessage": "Normal mosdepth per-base BED file must end in .bed.gz"
+            },
+            "vcf": {
+                "type": "string",
+                "format": "file-path",
+                "pattern": "^\\S+\\.vcf(\\.gz)?$",
+                "errorMessage": "VCF file must be provided (GRIDSS for SR, Sniffles for LR)"
+            },
+            "cnv": {
+                "type": "string",
+                "format": "file-path",
+                "errorMessage": "CNV RDS file path is invalid"
+            },
+            "purity": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1,
+                "default": 1.0,
+                "errorMessage": "Tumour purity must be between 0 and 1",
+                "meta": ["purity"]
+            },
+            "ploidy": {
+                "type": "number",
+                "minimum": 1,
+                "default": 2.0,
+                "errorMessage": "Tumour ploidy must be >= 1",
+                "meta": ["ploidy"]
+            },
+            "sex": {
+                "type": "string",
+                "enum": ["M", "F"],
+                "errorMessage": "Sex must be M or F if provided",
+                "meta": ["sex"]
+            }
+
+
+        },
+        "required": ["sample", "mode", "tumour_bed", "vcf"]
+    }
+}

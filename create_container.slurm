@@ -1,0 +1,1 @@
+sbatch --job-name=build_sif        --mem=16G        --time=5:00:00        --output=build_sif.log        --wrap="module load apptainer && apptainer build --build-arg GITHUB_PAT=ghp loopit_1.0.0.sif /home/users/allstaff/ureta.j/nf-core-loopit/loopit.def"
